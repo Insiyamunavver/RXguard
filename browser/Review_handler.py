@@ -1,7 +1,7 @@
 from utils.config import BASE_URL
 
 
-class ReviewAgent:
+class ReviewHandler:
     """Handles review and classify/push flow."""
 
     def review(self, page):

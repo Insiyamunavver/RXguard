@@ -1,34 +1,49 @@
+# =========================
 # Virtual Environment
+# =========================
 venv/
+.venv/
+env/
 
-# Environment Variables
+# =========================
+# Environment Variables / Secrets
+# =========================
 .env
+.env.*
+!.env.example
 
+# =========================
 # Python Cache
+# =========================
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
 
-# Generated Outputs
+# =========================
+# Generated / Runtime Data
+# =========================
 outputs/
 failed_prescriptions/
 prescriptions/
+logs/
+cache/
 
-
-# Cache Data
-cache/medicine_cache.json
-
-# Logs
-logs/*.log
-logs/*.txt
-
-# VS Code
+# =========================
+# IDE
+# =========================
 .vscode/
-
-# PyCharm
 .idea/
 
+# =========================
 # OS Files
+# =========================
 .DS_Store
 Thumbs.db
+
+# =========================
+# Temporary Files
+# =========================
+*.tmp
+*.temp
+*.log

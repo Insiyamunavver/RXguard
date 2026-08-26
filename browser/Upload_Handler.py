@@ -1,7 +1,7 @@
 from utils.config import BASE_URL
 
 
-class UploadAgent:
+class Upload_Handler:
     """Handles prescription upload flow."""
 
     def upload(self, page, image_path):

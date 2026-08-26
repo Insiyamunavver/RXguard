@@ -1,118 +1,71 @@
 import json
 import random
 from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
-from utils.config import (
-    BASE_URL,
-    USERNAME,
-    PASSWORD
-)
+from browser.rxai_client import RxAIClient
+from browser.prescription_parser import PrescriptionParser
+from browser.prescription_pipeline import PrescriptionPipeline
 
-from agents.upload_agent import UploadAgent
-from agents.form_fill_agent import FormFillAgent
-from agents.extraction_agent import ExtractionAgent
-from agents.drug_validation_agent import (
-    DrugValidationAgent
-)
-from agents.review_agent import ReviewAgent
-from agents.pipeline_agent import PipelineAgent
+from agents.drug_validation_agent import DrugValidationAgent
+from agents.review_decision_agent import ReviewDecisionAgent
 
+
+# ============================================================
+# FOLDERS
+# ============================================================
 
 PRESCRIPTION_FOLDER = "prescriptions"
 OUTPUT_FOLDER = "outputs"
 FAILED_FOLDER = "failed_prescriptions"
 
-# TEST ONLY FIRST 20 PRESCRIPTIONS
+
+# ============================================================
+# TEST SETTINGS
+# ============================================================
+
+# Keep these small while testing.
+# Increase them later when the pipeline is stable.
 BATCH_SIZE = 1
-MAX_IMAGES = 20
-
-def login(page):
-    """Login to RxAI."""
-
-    page.goto(
-        f"{BASE_URL}/rx-login?next=/rx-upload"
-    )
-    page.wait_for_load_state(
-        "networkidle"
-    )
-
-    page.get_by_role(
-        "textbox",
-        name="Enter username"
-    ).fill(USERNAME)
-
-    page.get_by_role(
-        "textbox",
-        name="Enter password"
-    ).fill(PASSWORD)
-
-    page.get_by_role(
-        "button",
-        name=" Sign In"
-    ).click()
-
-    page.wait_for_load_state(
-        "networkidle"
-    )
-
-    print("✅ Logged in!")
+MAX_IMAGES = 5
 
 
-def create_pipeline():
-    """Create all agents."""
+# ============================================================
+# PIPELINE CREATION
+# ============================================================
 
-    uploader = UploadAgent()
+def create_pipeline(page):
+    """
+    Create all components required by the prescription pipeline.
 
-    filler = FormFillAgent()
+    The RxAIClient handles all browser interaction.
+    The PrescriptionParser handles extraction parsing.
+    The DrugValidationAgent handles AI-based medicine validation.
+    """
 
-    extractor = ExtractionAgent()
+    rxai_client = RxAIClient(page)
 
-    drug_validator = (
-        DrugValidationAgent()
+    parser = PrescriptionParser()
+
+    drug_validator = DrugValidationAgent()
+
+    review_agent =  ReviewDecisionAgent()
+
+    return PrescriptionPipeline(
+        rxai_client=rxai_client,
+        parser=parser,
+        drug_validator=drug_validator,
+        review_agent=review_agent
     )
 
-    reviewer = (
-        ReviewAgent()
-    )
 
-    return PipelineAgent(
-        uploader,
-        filler,
-        extractor,
-        drug_validator,
-        reviewer
-    )
-
-def reset_upload_page(page):
-    """Reset UI back to upload page."""
-
-    try:
-        print(
-            "↩ Resetting to upload page..."
-        )
-
-        page.goto(
-            f"{BASE_URL}/rx-upload",
-        timeout=60000
-        )
-
-        page.wait_for_load_state(
-            "networkidle"
-        )
-
-        print(
-            "✅ Upload page ready."
-        )
-
-    except Exception as e:
-        print(
-            f"⚠ Reset failed: {e}"
-        )
-
+# ============================================================
+# RANDOM PATIENT DATA
+# ============================================================
 
 def get_random_patient():
-    """Random dummy patient data."""
+    """Generate random dummy patient data."""
 
     names = [
         "Rahul Sharma",
@@ -128,19 +81,19 @@ def get_random_patient():
     ]
 
     return {
-        "patient_name":
-            random.choice(names),
-        "gender":
-            random.choice(genders),
-        "age":
-            random.randint(18, 80),
-        "uhid":
-            f"UH-{random.randint(1000,9999)}"
+        "patient_name": random.choice(names),
+        "gender": random.choice(genders),
+        "age": random.randint(18, 80),
+        "uhid": f"UH-{random.randint(1000, 9999)}"
     }
 
 
+# ============================================================
+# RANDOM DOCTOR DATA
+# ============================================================
+
 def get_random_doctor():
-    """Random dummy doctor data."""
+    """Generate random dummy doctor data."""
 
     doctors = [
         "Dr. Gupta",
@@ -157,45 +110,66 @@ def get_random_doctor():
     ]
 
     return {
-        "doctor_name":
-            random.choice(doctors),
-        "department":
-            random.choice(departments),
-        "hospital":
-            "Regency Hospital"
+        "doctor_name": random.choice(doctors),
+        "department": random.choice(departments),
+        "hospital": "Regency Hospital"
     }
 
 
+# ============================================================
+# MAIN PIPELINE
+# ============================================================
+
 def main():
-    Path(
-        OUTPUT_FOLDER
-    ).mkdir(exist_ok=True)
-    Path(
-        FAILED_FOLDER
-    ).mkdir(exist_ok=True)
 
-    # Load images
-    images = sorted([
-        str(p)
-        for p in Path(
-            PRESCRIPTION_FOLDER
-        ).glob("*")
-        if p.suffix.lower()
-        in [".jpg", ".jpeg", ".png"]
-    ])
+    # --------------------------------------------------------
+    # Create required output folders
+    # --------------------------------------------------------
 
-    # TEST FIRST 2
+    Path(OUTPUT_FOLDER).mkdir(
+        exist_ok=True
+    )
+
+    Path(FAILED_FOLDER).mkdir(
+        exist_ok=True
+    )
+
+    # --------------------------------------------------------
+    # Load prescription images
+    # --------------------------------------------------------
+
+    images = sorted(
+        [
+            str(p)
+            for p in Path(
+                PRESCRIPTION_FOLDER
+            ).glob("*")
+            if p.suffix.lower()
+            in [
+                ".jpg",
+                ".jpeg",
+                ".png"
+            ]
+        ]
+    )
+
+    # Limit number of images during testing
     images = images[:MAX_IMAGES]
 
     total_images = len(images)
 
     if total_images == 0:
-        print("❌ No images found.")
+        print("❌ No prescription images found.")
         return
 
     print(
-        f"\n📁 Total images found: {total_images}"
+        f"\n📁 Total images found: "
+        f"{total_images}"
     )
+
+    # --------------------------------------------------------
+    # Process images in batches
+    # --------------------------------------------------------
 
     batch_count = 0
 
@@ -204,6 +178,7 @@ def main():
         total_images,
         BATCH_SIZE
     ):
+
         batch_count += 1
 
         batch_images = images[
@@ -211,65 +186,101 @@ def main():
             batch_start + BATCH_SIZE
         ]
 
-        print("\n" + "=" * 60)
         print(
-            f"🚀 STARTING BATCH {batch_count}"
+            "\n" + "=" * 60
         )
+
         print(
-            f"Images {batch_start+1} "
+            f"🚀 STARTING BATCH "
+            f"{batch_count}"
+        )
+
+        print(
+            f"Images "
+            f"{batch_start + 1} "
             f"to "
-            f"{min(batch_start+BATCH_SIZE, total_images)}"
+            f"{min(batch_start + BATCH_SIZE, total_images)}"
         )
-        print("=" * 60)
+
+        print(
+            "=" * 60
+        )
+
+        # ----------------------------------------------------
+        # Start browser
+        # ----------------------------------------------------
 
         with sync_playwright() as p:
+
             browser = p.chromium.launch(
                 headless=False
             )
 
-            context = (
-                browser.new_context()
-            )
+            context = browser.new_context()
 
-            page = (
-                context.new_page()
-            )
+            page = context.new_page()
 
-            login(page)
+            # ------------------------------------------------
+            # Create RxAI client
+            # ------------------------------------------------
 
-            pipeline = (
-                create_pipeline()
-            )
+            rxai_client = RxAIClient(page)
+
+            # ------------------------------------------------
+            # Login
+            # ------------------------------------------------
+
+            rxai_client.login()
+
+            # ------------------------------------------------
+            # Create pipeline
+            # ------------------------------------------------
+
+            pipeline = create_pipeline(page)
+
+            # ------------------------------------------------
+            # Process each prescription in the batch
+            # ------------------------------------------------
 
             for index, image_path in enumerate(
                 batch_images,
                 start=1
             ):
+
                 image_name = Path(
                     image_path
                 ).stem
 
                 print(
                     f"\n📸 Processing "
-                    f"{index}/{len(batch_images)}"
+                    f"{index}/"
+                    f"{len(batch_images)}"
                     f" → {image_name}"
                 )
 
-                patient_data = (
-                    get_random_patient()
-                )
+                # --------------------------------------------
+                # Generate dummy patient and doctor data
+                # --------------------------------------------
 
-                doctor_data = (
-                    get_random_doctor()
-                )
+                patient_data = get_random_patient()
+
+                doctor_data = get_random_doctor()
 
                 try:
+
+                    # ----------------------------------------
+                    # Run prescription pipeline
+                    # ----------------------------------------
+
                     result = pipeline.run(
-                        page=page,
                         image_path=image_path,
                         patient_data=patient_data,
                         doctor_data=doctor_data
                     )
+
+                    # ----------------------------------------
+                    # Save output JSON
+                    # ----------------------------------------
 
                     output_file = (
                         Path(OUTPUT_FOLDER)
@@ -281,6 +292,7 @@ def main():
                         "w",
                         encoding="utf-8"
                     ) as file:
+
                         json.dump(
                             result,
                             file,
@@ -291,8 +303,16 @@ def main():
                         f"✅ Saved: "
                         f"{output_file}"
                     )
+
+                    # ----------------------------------------
+                    # Check whether any medicine failed
+                    # validation
+                    # ----------------------------------------
+
                     has_failed_medicine = any(
-                        not medicine["verification"].get(
+                        not medicine[
+                            "verification"
+                        ].get(
                             "exists",
                             False
                         )
@@ -301,10 +321,16 @@ def main():
                         ]
                     )
 
+                    # ----------------------------------------
+                    # Save failed prescriptions separately
+                    # ----------------------------------------
+
                     if has_failed_medicine:
 
                         failed_file = (
-                            Path(FAILED_FOLDER)
+                            Path(
+                                FAILED_FOLDER
+                            )
                             / f"{image_name}.json"
                         )
 
@@ -313,6 +339,7 @@ def main():
                             "w",
                             encoding="utf-8"
                         ) as file:
+
                             json.dump(
                                 result,
                                 file,
@@ -320,25 +347,35 @@ def main():
                             )
 
                         print(
-        f"⚠ Failed prescription saved: "
-        f"{failed_file}"
-    )
+                            f"⚠ Failed prescription "
+                            f"saved: {failed_file}"
+                        )
 
                 except Exception as e:
+
                     print(
                         f"❌ Failed: "
                         f"{image_name}"
                     )
+
                     print(
                         f"Reason: {e}"
                     )
 
                 finally:
-                    reset_upload_page(
-                        page
-                    )
+
+                    # ----------------------------------------
+                    # Reset RxAI browser to upload page
+                    # ----------------------------------------
+
+                    rxai_client.reset_to_upload()
+
+            # ------------------------------------------------
+            # Close browser
+            # ------------------------------------------------
 
             context.close()
+
             browser.close()
 
         print(
@@ -349,6 +386,10 @@ def main():
         "\n🎉 TEST COMPLETE!"
     )
 
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,7 @@
 from playwright.sync_api import Page
 
 
-class ExtractionAgent:
+class PrescriptionParser:
     """Reads extracted RxAI medicine results from UI."""
 
     def wait_for_extraction(

@@ -1,4 +1,4 @@
-class FormFillAgent:
+class form_filler:
     """Handles dynamic patient and doctor form filling."""
 
     def fill_patient_form(self, page, patient_data):
